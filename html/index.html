@@ -1,10 +1,71 @@
 <html>
+    <head>
+        <style>
+            body {
+                font-size: 16px;
+            }
+
+            .header {
+                /* Hides any overflowing content. Should have nothing of that sort */
+                overflow: hidden;
+                background-color: #333;
+                float: none;
+                display: block;
+                padding-bottom: 5px;
+                padding-top: 5px;
+                padding-left: 5px;
+            }
+
+            .header a {
+                float: left;
+                color: white;
+                text-align: center;
+                padding: 8px;
+                text-decoration: none;
+                font-size: 18px;
+                line-height: 25px;
+                border-radius: 4px;
+            }
+
+            .header a.title {
+                font-size: 25px;
+                font-weight: bold;
+            }
+
+            .page {
+                padding-top: 10px;
+                margin-left: 15px;
+                margin-top: 15px;
+            }
+
+            .page textarea{
+                display: block;
+                margin-bottom: 15px;
+                padding: 10px;
+            }
+
+            .page button{
+                display: block;
+                margin-bottom: 15px;
+            }
+
+            textarea {
+                line-height: 1.15;
+                border-radius: 5px;
+                border: 2px solid #ccc;
+                font-size: .8rem;
+            }
+        </style>
+    </head>
     <body>
-        <h2>Pastebin-go</h2>
-        <form method="POST">
-            <label for="contents">Text: </label>
-            <textarea id="contents"> </textarea>
-            <button type="button">Paste!</button>
-        </form>
+        <div class="header">
+            <a href="/" class="title">Pastebin-go</a>
+        </div>
+        <div class="page">
+            <form method="POST">
+                <textarea id="contents" rows="5" cols="50"> </textarea>
+                <button type="button">Paste!</button>
+            </form>
+        </div>
     </body>
 </html>
