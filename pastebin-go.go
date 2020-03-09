@@ -1,12 +1,14 @@
 package main
 
 import (
+    "html/template"
     "log"
     "net/http"
-    "html/template"
+    "os"
+    "path/filepath"
 )
 
-var templates = template.Must(template.ParseGlob("html/*.html"))
+var templates = template.Must(template.ParseGlob(filepath.Join(os.Getenv("TEMPLATE_DIR"), "*.html")))
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
     err := templates.ExecuteTemplate(w, "indexPage", nil)
