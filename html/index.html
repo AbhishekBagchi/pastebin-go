@@ -1,3 +1,4 @@
+{{define "indexPage" }}
 <html>
     <head>
         <style>
@@ -58,9 +59,7 @@
         </style>
     </head>
     <body>
-        <div class="header">
-            <a href="/" class="title">Pastebin-go</a>
-        </div>
+        {{ template "header" }}
         <div class="page">
             <form method="POST">
                 <textarea id="contents" rows="5" cols="50"> </textarea>
@@ -69,3 +68,4 @@
         </div>
     </body>
 </html>
+{{ end }}

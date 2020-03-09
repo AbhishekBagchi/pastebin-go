@@ -6,10 +6,14 @@ import (
     "html/template"
 )
 
-var templates = template.Must(template.ParseFiles("html/index.html"))
+var templates = template.Must(template.ParseGlob("html/*.html"))
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-    _ = templates.ExecuteTemplate(w, "index.html", nil)
+    err := templates.ExecuteTemplate(w, "indexPage", nil)
+    if (err != nil) {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
 }
 
 func main() {
