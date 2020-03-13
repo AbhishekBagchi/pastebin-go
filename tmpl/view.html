@@ -1,0 +1,14 @@
+{{define "viewPage" }}
+<html>
+    <head>
+        <link rel="stylesheet" href="/static/styles.css">
+    </head>
+    <body>
+        {{ template "header" }}
+        <div class="page">
+            <div><a href={{.Link}}>Link!</a></div>
+            <div>{{printf "%s" .Contents}}</div>
+        </div>
+    </body>
+</html>
+{{ end }}

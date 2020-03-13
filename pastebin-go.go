@@ -9,10 +9,16 @@ import (
     "net/http"
     "os"
     "path/filepath"
+    "strings"
 )
 
 var templates = template.Must(template.ParseGlob(filepath.Join(os.Getenv("TEMPLATE_DIR"), "*.html")))
 var hash = sha256.New()
+
+type Paste struct {
+    Link template.URL;
+    Contents string;
+}
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
     if (r.Method == http.MethodGet) {
@@ -32,6 +38,30 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
             http.Error(w, err.Error(), http.StatusInternalServerError)
             return
         }
+        http.Redirect(w, r, "/view/" + filename, http.StatusSeeOther)
+    }
+}
+
+func viewHandler(w http.ResponseWriter, r *http.Request) {
+    urlPath := r.URL.Path
+    idx := strings.Index(urlPath, "/view/")
+    if (idx == -1) {
+        http.Error(w, "Invalid URL format", http.StatusInternalServerError)
+        return
+    }
+    link := template.URL("http://" + r.Host + urlPath)
+    filename := urlPath[6:]
+    _, err := os.Stat(filename);
+    if (err != nil) {
+        http.Redirect(w, r, "/error/", http.StatusSeeOther)
+        return
+    }
+    dat, err := ioutil.ReadFile(filename)
+    p := &Paste{Link: link, Contents: string(dat)}
+    err = templates.ExecuteTemplate(w, "viewPage", p)
+    if (err != nil) {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
     }
 }
 
@@ -48,6 +78,7 @@ func main() {
     http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(os.Getenv("STATIC_DIR")))))
 
     http.HandleFunc("/", indexHandler)
-    http.HandleFunc("/error", errorHandler)
+    http.HandleFunc("/error/", errorHandler)
+    http.HandleFunc("/view/", viewHandler)
     log.Fatal(http.ListenAndServe(":8080", nil))
 }
