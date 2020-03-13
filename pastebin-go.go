@@ -35,10 +35,19 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
     }
 }
 
+func errorHandler(w http.ResponseWriter, r *http.Request) {
+    err := templates.ExecuteTemplate(w, "errorPage", nil)
+    if (err != nil) {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+}
+
 func main() {
     //Serve static CSS etc
     http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(os.Getenv("STATIC_DIR")))))
 
     http.HandleFunc("/", indexHandler)
+    http.HandleFunc("/error", errorHandler)
     log.Fatal(http.ListenAndServe(":8080", nil))
 }
