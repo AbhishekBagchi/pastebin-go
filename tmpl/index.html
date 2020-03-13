@@ -1,0 +1,16 @@
+{{define "indexPage" }}
+<html>
+    <head>
+        <link rel="stylesheet" href="/static/styles.css">
+    </head>
+    <body>
+        {{ template "header" }}
+        <div class="page">
+            <form method="post" action="/paste">
+                <textarea name="contents" rows="5" cols="50"> </textarea>
+                <button type="submit">Paste!</button>
+            </form>
+        </div>
+    </body>
+</html>
+{{ end }}
