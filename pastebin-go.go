@@ -80,5 +80,5 @@ func main() {
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/error/", errorHandler)
 	http.HandleFunc("/view/", viewHandler)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe("localhost:8080", nil))
 }
