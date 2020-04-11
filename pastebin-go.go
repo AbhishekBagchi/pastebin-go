@@ -117,7 +117,7 @@ func checkIfLowPort(addrs listenAddresses) {
 		if err != nil {
 			log.Fatal("Invalid format: ", addr)
 		}
-		if portNum <= 1024 {
+		if portNum <= 1024 && os.Geteuid() != 0 {
 			log.Fatal("Need to be root to bind to ", addr)
 		}
 	}
