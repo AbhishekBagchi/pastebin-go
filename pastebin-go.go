@@ -3,14 +3,35 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"flag"
 	"html/template"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 )
+
+//Command line args
+
+//Interface addresses. Passed in multiple times for multiple values
+type listenAddresses []string
+
+func (i *listenAddresses) String() string {
+	str := ""
+	for _, s := range *i {
+		str += s
+	}
+	return str
+}
+
+func (i *listenAddresses) Set(value string) error {
+	*i = append(*i, value)
+	return nil
+}
 
 var templates = template.Must(template.ParseGlob(filepath.Join(os.Getenv("TEMPLATE_DIR"), "*.html")))
 var hash = sha256.New()
@@ -73,12 +94,49 @@ func errorHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func main() {
+func startServer(wg *sync.WaitGroup, ifc string) {
+	defer wg.Done()
+	log.Printf("Listening on %s", ifc)
+	serveMux := http.NewServeMux()
 	//Serve static CSS etc
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(os.Getenv("STATIC_DIR")))))
+	serveMux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(os.Getenv("STATIC_DIR")))))
+	serveMux.HandleFunc("/", indexHandler)
+	serveMux.HandleFunc("/error/", errorHandler)
+	serveMux.HandleFunc("/view/", viewHandler)
+	log.Fatal(http.ListenAndServe(ifc, serveMux))
+}
 
-	http.HandleFunc("/", indexHandler)
-	http.HandleFunc("/error/", errorHandler)
-	http.HandleFunc("/view/", viewHandler)
-	log.Fatal(http.ListenAndServe("localhost:8080", nil))
+//checkIfLowPort checks if user needs to be root to bind to a certain port and panics if a non root user tries to do so
+func checkIfLowPort(addrs listenAddresses) {
+	for _, addr := range addrs {
+		parts := strings.Split(addr, ":")
+		if len(parts) != 2 {
+			log.Fatal("Invalid format: ", addr)
+		}
+		portNum, err := strconv.Atoi(parts[1])
+		if err != nil {
+			log.Fatal("Invalid format: ", addr)
+		}
+		if portNum <= 1024 {
+			log.Fatal("Need to be root to bind to ", addr)
+		}
+	}
+}
+
+func main() {
+	var addrs listenAddresses
+	flag.Var(&addrs, "interface", "Interface to listen to. Interfaces are of the form <address>:<port>. Call multiple times for multiple addresses")
+	flag.Parse()
+
+	if len(addrs) == 0 {
+		addrs = append(addrs, "localhost:8080")
+	}
+	checkIfLowPort(addrs)
+
+	var wg sync.WaitGroup
+	for _, ifc := range addrs {
+		wg.Add(1)
+		go startServer(&wg, ifc)
+	}
+	wg.Wait()
 }
