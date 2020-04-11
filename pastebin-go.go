@@ -33,7 +33,7 @@ func (i *listenAddresses) Set(value string) error {
 	return nil
 }
 
-var templates = template.Must(template.ParseGlob(filepath.Join(os.Getenv("TEMPLATE_DIR"), "*.html")))
+var templates *template.Template
 var hash = sha256.New()
 
 type Paste struct {
@@ -94,12 +94,12 @@ func errorHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func startServer(wg *sync.WaitGroup, ifc string) {
+func startServer(wg *sync.WaitGroup, static_dir string, ifc string) {
 	defer wg.Done()
 	log.Printf("Listening on %s", ifc)
 	serveMux := http.NewServeMux()
 	//Serve static CSS etc
-	serveMux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(os.Getenv("STATIC_DIR")))))
+	serveMux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(static_dir))))
 	serveMux.HandleFunc("/", indexHandler)
 	serveMux.HandleFunc("/error/", errorHandler)
 	serveMux.HandleFunc("/view/", viewHandler)
@@ -126,6 +126,8 @@ func checkIfLowPort(addrs listenAddresses) {
 func main() {
 	var addrs listenAddresses
 	flag.Var(&addrs, "interface", "Interface to listen to. Interfaces are of the form <address>:<port>. Call multiple times for multiple addresses")
+	tmpl_flag := flag.String("template-dir", "", "Directory for template files")
+	static_flag := flag.String("static-dir", "", "Directory for static files")
 	flag.Parse()
 
 	if len(addrs) == 0 {
@@ -133,10 +135,20 @@ func main() {
 	}
 	checkIfLowPort(addrs)
 
+	template_dir := *tmpl_flag
+	if template_dir == "" {
+		template_dir = os.Getenv("TEMPLATE_DIR")
+	}
+	templates = template.Must(template.ParseGlob(filepath.Join(template_dir, "*.html")))
+	static_dir := *static_flag
+	if static_dir == "" {
+		static_dir = os.Getenv("STATIC_DIR")
+	}
+
 	var wg sync.WaitGroup
 	for _, ifc := range addrs {
 		wg.Add(1)
-		go startServer(&wg, ifc)
+		go startServer(&wg, static_dir, ifc)
 	}
 	wg.Wait()
 }
