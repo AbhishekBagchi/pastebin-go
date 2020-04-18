@@ -4,8 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"flag"
+	"github.com/AbhishekBagchi/kvdb"
 	"html/template"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -34,6 +34,9 @@ func (i *listenAddresses) Set(value string) error {
 }
 
 var templates *template.Template
+var static_dir string
+var db_filename string
+var database *kvdb.Database
 var hash = sha256.New()
 
 type Paste struct {
@@ -50,16 +53,19 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if r.Method == http.MethodPost {
 		data := []byte(r.FormValue("contents"))
-		hash := hash.Sum(data)
-		filename := hex.EncodeToString(hash[0:8])
+		hash := sha256.Sum256(data)
+		key := hex.EncodeToString(hash[0:8])
+		log.Printf("%s: %s", key, data)
 
-		//FIXME First implimentation. Can and should be improved.
-		err := ioutil.WriteFile(filename, data, 0644)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		db_err := database.Insert(key, data, false)
+		if db_err != nil {
+			log.Printf(db_err.String())
+			http.Error(w, "Server error", 501)
 			return
 		}
-		http.Redirect(w, r, "/view/"+filename, http.StatusSeeOther)
+		defer database.Export(db_filename)
+
+		http.Redirect(w, r, "/view/"+key, http.StatusSeeOther)
 	}
 }
 
@@ -71,15 +77,15 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	link := template.URL("http://" + r.Host + urlPath)
-	filename := urlPath[6:]
-	_, err := os.Stat(filename)
-	if err != nil {
-		http.Redirect(w, r, "/error/", http.StatusSeeOther)
+	key := urlPath[6:]
+	dat, db_err := database.Get(key)
+	if db_err != nil {
+		log.Printf(db_err.String())
+		http.Error(w, "Server error", 501)
 		return
 	}
-	dat, err := ioutil.ReadFile(filename)
 	p := &Paste{Link: link, Contents: string(dat)}
-	err = templates.ExecuteTemplate(w, "viewPage", p)
+	err := templates.ExecuteTemplate(w, "viewPage", p)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -123,27 +129,41 @@ func checkIfLowPort(addrs listenAddresses) {
 	}
 }
 
+func init_global(template_flag *string, static_flag *string, db_flag *string) {
+	template_dir := *template_flag
+	if template_dir == "" {
+		template_dir = os.Getenv("TEMPLATE_DIR")
+	}
+	templates = template.Must(template.ParseGlob(filepath.Join(template_dir, "*.html")))
+
+	static_dir = *static_flag
+	if static_dir == "" {
+		static_dir = os.Getenv("STATIC_DIR")
+	}
+
+	var err error
+	db_filename = *db_flag
+	database, err = kvdb.Open(db_filename, true)
+	if err != nil {
+		panic(err)
+	}
+}
+
 func main() {
 	var addrs listenAddresses
 	flag.Var(&addrs, "interface", "Interface to listen to. Interfaces are of the form <address>:<port>. Call multiple times for multiple addresses")
 	tmpl_flag := flag.String("template-dir", "", "Directory for template files")
 	static_flag := flag.String("static-dir", "", "Directory for static files")
+	dbfile_flag := flag.String("database", "paste.kvdb", "Filename to store the database in")
 	flag.Parse()
+
+	init_global(tmpl_flag, static_flag, dbfile_flag)
+	defer database.Export(db_filename)
 
 	if len(addrs) == 0 {
 		addrs = append(addrs, "localhost:8080")
 	}
 	checkIfLowPort(addrs)
-
-	template_dir := *tmpl_flag
-	if template_dir == "" {
-		template_dir = os.Getenv("TEMPLATE_DIR")
-	}
-	templates = template.Must(template.ParseGlob(filepath.Join(template_dir, "*.html")))
-	static_dir := *static_flag
-	if static_dir == "" {
-		static_dir = os.Getenv("STATIC_DIR")
-	}
 
 	var wg sync.WaitGroup
 	for _, ifc := range addrs {
