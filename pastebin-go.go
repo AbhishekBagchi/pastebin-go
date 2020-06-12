@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"flag"
 	"github.com/AbhishekBagchi/kvdb"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 //Command line args
@@ -33,10 +35,13 @@ func (i *listenAddresses) Set(value string) error {
 	return nil
 }
 
-var templates *template.Template
-var static_dir string
-var db_filename string
-var database *kvdb.Database
+var config struct {
+	templates   *template.Template
+	static_dir  string
+	db_filename string
+	database    *kvdb.Database
+}
+
 var hash = sha256.New()
 
 type Paste struct {
@@ -44,9 +49,20 @@ type Paste struct {
 	Contents string
 }
 
+//encodeData takes in the raw data being pasted and prepares it for storage in the database.
+//The data is stored as <exprity_time int65> + <paste_data>
+//expiry_time is current_time + TTL. TTL is in minutes
+func encodeData(data []byte, ttl time.Duration) []byte {
+	currTime := time.Now()
+	expiryTime := (uint64)(currTime.Add(ttl).Unix())
+	timeBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(timeBytes, expiryTime)
+	return append(timeBytes, data...)
+}
+
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		err := templates.ExecuteTemplate(w, "indexPage", nil)
+		err := config.templates.ExecuteTemplate(w, "indexPage", nil)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -57,13 +73,13 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		key := hex.EncodeToString(hash[0:8])
 		log.Printf("%s: %s", key, data)
 
-		db_err := database.Insert(key, data, false)
+		db_err := config.database.Insert(key, data, false)
 		if db_err != nil {
 			log.Printf(db_err.String())
 			http.Error(w, "Server error", 501)
 			return
 		}
-		defer database.Export(db_filename)
+		defer config.database.Export(config.db_filename)
 
 		http.Redirect(w, r, "/view/"+key, http.StatusSeeOther)
 	}
@@ -78,14 +94,14 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	link := template.URL("http://" + r.Host + urlPath)
 	key := urlPath[6:]
-	dat, db_err := database.Get(key)
+	dat, db_err := config.database.Get(key)
 	if db_err != nil {
 		log.Printf(db_err.String())
 		http.Error(w, "Server error", 501)
 		return
 	}
 	p := &Paste{Link: link, Contents: string(dat)}
-	err := templates.ExecuteTemplate(w, "viewPage", p)
+	err := config.templates.ExecuteTemplate(w, "viewPage", p)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -93,13 +109,14 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func errorHandler(w http.ResponseWriter, r *http.Request) {
-	err := templates.ExecuteTemplate(w, "errorPage", nil)
+	err := config.templates.ExecuteTemplate(w, "errorPage", nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 }
 
+//startServer sets up the http server and routing to different end point handlers
 func startServer(wg *sync.WaitGroup, static_dir string, ifc string) {
 	defer wg.Done()
 	log.Printf("Listening on %s", ifc)
@@ -129,21 +146,22 @@ func checkIfLowPort(addrs listenAddresses) {
 	}
 }
 
-func init_global(template_flag *string, static_flag *string, db_flag *string) {
+//init_global sets up and initializes the global variables
+func init_global(template_flag *string, static_flag *string, database_filename string) {
 	template_dir := *template_flag
 	if template_dir == "" {
 		template_dir = os.Getenv("TEMPLATE_DIR")
 	}
-	templates = template.Must(template.ParseGlob(filepath.Join(template_dir, "*.html")))
+	config.templates = template.Must(template.ParseGlob(filepath.Join(template_dir, "*.html")))
 
-	static_dir = *static_flag
-	if static_dir == "" {
-		static_dir = os.Getenv("STATIC_DIR")
+	config.static_dir = *static_flag
+	if config.static_dir == "" {
+		config.static_dir = os.Getenv("STATIC_DIR")
 	}
 
 	var err error
-	db_filename = *db_flag
-	database, err = kvdb.Open(db_filename, true)
+	config.db_filename = database_filename
+	config.database, err = kvdb.Open(config.db_filename, true)
 	if err != nil {
 		panic(err)
 	}
@@ -154,11 +172,10 @@ func main() {
 	flag.Var(&addrs, "interface", "Interface to listen to. Interfaces are of the form <address>:<port>. Call multiple times for multiple addresses")
 	tmpl_flag := flag.String("template-dir", "", "Directory for template files")
 	static_flag := flag.String("static-dir", "", "Directory for static files")
-	dbfile_flag := flag.String("database", "paste.kvdb", "Filename to store the database in")
 	flag.Parse()
 
-	init_global(tmpl_flag, static_flag, dbfile_flag)
-	defer database.Export(db_filename)
+	init_global(tmpl_flag, static_flag, "paste.kvdb")
+	defer config.database.Export(config.db_filename)
 
 	if len(addrs) == 0 {
 		addrs = append(addrs, "localhost:8080")
@@ -168,7 +185,7 @@ func main() {
 	var wg sync.WaitGroup
 	for _, ifc := range addrs {
 		wg.Add(1)
-		go startServer(&wg, static_dir, ifc)
+		go startServer(&wg, config.static_dir, ifc)
 	}
 	wg.Wait()
 }
