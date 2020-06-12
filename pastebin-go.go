@@ -147,7 +147,7 @@ func checkIfLowPort(addrs listenAddresses) {
 }
 
 //init_global sets up and initializes the global variables
-func init_global(template_flag *string, static_flag *string, database_filename string) {
+func init_global(template_flag *string, static_flag *string, clean_db *bool) {
 	template_dir := *template_flag
 	if template_dir == "" {
 		template_dir = os.Getenv("TEMPLATE_DIR")
@@ -160,6 +160,21 @@ func init_global(template_flag *string, static_flag *string, database_filename s
 	}
 
 	var err error
+	database_dir := filepath.Join(os.Getenv("HOME"), ".pastebin-go")
+	database_filename := filepath.Join(database_dir, ".pastedata.kvdb")
+	if _, err = os.Stat(database_dir); err != nil {
+		if os.IsNotExist(err) {
+			//Create
+			os.Mkdir(database_dir, 0775)
+		} else {
+			panic(err)
+		}
+	}
+
+	if _, err = os.Stat(database_filename); err == nil && *clean_db == true {
+		os.Remove(database_filename)
+	}
+
 	config.db_filename = database_filename
 	config.database, err = kvdb.Open(config.db_filename, true)
 	if err != nil {
@@ -172,9 +187,10 @@ func main() {
 	flag.Var(&addrs, "interface", "Interface to listen to. Interfaces are of the form <address>:<port>. Call multiple times for multiple addresses")
 	tmpl_flag := flag.String("template-dir", "", "Directory for template files")
 	static_flag := flag.String("static-dir", "", "Directory for static files")
+	clean_flag := flag.Bool("clean-database", false, "Delete existing database and create from scratch")
 	flag.Parse()
 
-	init_global(tmpl_flag, static_flag, "paste.kvdb")
+	init_global(tmpl_flag, static_flag, clean_flag)
 	defer config.database.Export(config.db_filename)
 
 	if len(addrs) == 0 {
