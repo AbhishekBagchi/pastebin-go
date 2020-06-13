@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"github.com/AbhishekBagchi/kvdb"
 	"html/template"
@@ -16,8 +17,6 @@ import (
 	"sync"
 	"time"
 )
-
-//Command line args
 
 //Interface addresses. Passed in multiple times for multiple values
 type listenAddresses []string
@@ -49,15 +48,28 @@ type Paste struct {
 	Contents string
 }
 
-//encodeData takes in the raw data being pasted and prepares it for storage in the database.
-//The data is stored as <exprity_time int65> + <paste_data>
+//encodeTime takes in the raw data being pasted and prepares it for storage in the database.
+//The data is stored as <exprity_time uint64> + <paste_data>
 //expiry_time is current_time + TTL. TTL is in minutes
-func encodeData(data []byte, ttl time.Duration) []byte {
+func encodeTime(data []byte, ttl time.Duration) []byte {
+	//Pre-prend a canary for some robustness
+	canary := []byte{0xde, 0xad}
 	currTime := time.Now()
 	expiryTime := (uint64)(currTime.Add(ttl).Unix())
 	timeBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(timeBytes, expiryTime)
-	return append(timeBytes, data...)
+	data = append(timeBytes, data...)
+	return append(canary, data...)
+}
+
+//decodeTime gets the expiry time for a data chunk from the first 8 bytes
+func decodeTime(data []byte) ([]byte, uint64, error) {
+	canary := []byte{0xde, 0xad}
+	if data[0] != canary[0] || data[1] != canary[1] {
+		return nil, 0, errors.New("Malformed data")
+	}
+	timeBytes := data[2:10]
+	return data[10:], binary.LittleEndian.Uint64(timeBytes), nil
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +81,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if r.Method == http.MethodPost {
 		data := []byte(r.FormValue("contents"))
+		data = encodeTime(data, 1*time.Minute)
 		hash := sha256.Sum256(data)
 		key := hex.EncodeToString(hash[0:8])
 		log.Printf("%s: %s", key, data)
@@ -100,8 +113,14 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server error", 501)
 		return
 	}
+	dat, _, err := decodeTime(dat)
+	if err != nil {
+		log.Printf(db_err.String())
+		http.Error(w, "Server error", 501)
+		return
+	}
 	p := &Paste{Link: link, Contents: string(dat)}
-	err := config.templates.ExecuteTemplate(w, "viewPage", p)
+	err = config.templates.ExecuteTemplate(w, "viewPage", p)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -161,7 +180,7 @@ func init_global(template_flag *string, static_flag *string, clean_db *bool) {
 
 	var err error
 	database_dir := filepath.Join(os.Getenv("HOME"), ".pastebin-go")
-	database_filename := filepath.Join(database_dir, ".pastedata.kvdb")
+	config.db_filename = filepath.Join(database_dir, ".pastedata.kvdb")
 	if _, err = os.Stat(database_dir); err != nil {
 		if os.IsNotExist(err) {
 			//Create
@@ -171,11 +190,10 @@ func init_global(template_flag *string, static_flag *string, clean_db *bool) {
 		}
 	}
 
-	if _, err = os.Stat(database_filename); err == nil && *clean_db == true {
-		os.Remove(database_filename)
+	if _, err = os.Stat(config.db_filename); err == nil && *clean_db == true {
+		os.Remove(config.db_filename)
 	}
 
-	config.db_filename = database_filename
 	config.database, err = kvdb.Open(config.db_filename, true)
 	if err != nil {
 		panic(err)
@@ -183,6 +201,7 @@ func init_global(template_flag *string, static_flag *string, clean_db *bool) {
 }
 
 func main() {
+	//Setup command line flags
 	var addrs listenAddresses
 	flag.Var(&addrs, "interface", "Interface to listen to. Interfaces are of the form <address>:<port>. Call multiple times for multiple addresses")
 	tmpl_flag := flag.String("template-dir", "", "Directory for template files")
