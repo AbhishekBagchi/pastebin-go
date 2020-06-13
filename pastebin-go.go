@@ -35,10 +35,10 @@ func (i *listenAddresses) Set(value string) error {
 }
 
 var config struct {
-	templates   *template.Template
-	static_dir  string
-	db_filename string
-	database    *kvdb.Database
+	templates  *template.Template
+	staticDir  string
+	dbFilename string
+	database   *kvdb.Database
 }
 
 var hash = sha256.New()
@@ -91,22 +91,22 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if r.Method == http.MethodPost {
 		data := []byte(r.FormValue("contents"))
-		ttl_unit := r.FormValue("ttl_unit")
-		ttl_form := r.FormValue("ttl")
+		ttlUnit := r.FormValue("ttl_unit")
+		ttlFormValue := r.FormValue("ttl")
 		var ttl time.Duration = 0
-		if ttl_form != "" {
-			ttl_value, err := strconv.Atoi(ttl_form)
+		if ttlFormValue != "" {
+			ttlValue, err := strconv.Atoi(ttlFormValue)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			switch ttl_unit {
+			switch ttlUnit {
 			case "minute":
-				ttl = time.Duration(ttl_value) * time.Minute
+				ttl = time.Duration(ttlValue) * time.Minute
 			case "hour":
-				ttl = time.Duration(ttl_value) * time.Hour
+				ttl = time.Duration(ttlValue) * time.Hour
 			case "day":
-				ttl = time.Duration(ttl_value) * 24 * time.Hour
+				ttl = time.Duration(ttlValue) * 24 * time.Hour
 			}
 		}
 		data = encodeTime(data, ttl)
@@ -114,13 +114,13 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		key := hex.EncodeToString(hash[0:8])
 		log.Printf("%s: %s, %v, %v", key, data)
 
-		db_err := config.database.Insert(key, data, false)
-		if db_err != nil {
-			log.Printf(db_err.String())
+		dbErr := config.database.Insert(key, data, false)
+		if dbErr != nil {
+			log.Printf(dbErr.String())
 			http.Error(w, "Server error", 501)
 			return
 		}
-		defer config.database.Export(config.db_filename)
+		defer config.database.Export(config.dbFilename)
 
 		http.Redirect(w, r, "/view/"+key, http.StatusSeeOther)
 	}
@@ -135,15 +135,15 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	link := template.URL("http://" + r.Host + urlPath)
 	key := urlPath[6:]
-	dat, db_err := config.database.Get(key)
-	if db_err != nil {
-		log.Printf(db_err.String())
+	dat, dbErr := config.database.Get(key)
+	if dbErr != nil {
+		log.Printf(dbErr.String())
 		http.Error(w, "Server error", 501)
 		return
 	}
 	dat, _, err := decodeTime(dat)
 	if err != nil {
-		log.Printf(db_err.String())
+		log.Printf(dbErr.String())
 		http.Error(w, "Server error", 501)
 		return
 	}
@@ -164,12 +164,12 @@ func errorHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 //startServer sets up the http server and routing to different end point handlers
-func startServer(wg *sync.WaitGroup, static_dir string, ifc string) {
+func startServer(wg *sync.WaitGroup, staticDir string, ifc string) {
 	defer wg.Done()
 	log.Printf("Listening on %s", ifc)
 	serveMux := http.NewServeMux()
 	//Serve static CSS etc
-	serveMux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(static_dir))))
+	serveMux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 	serveMux.HandleFunc("/", indexHandler)
 	serveMux.HandleFunc("/error/", errorHandler)
 	serveMux.HandleFunc("/view/", viewHandler)
@@ -193,36 +193,36 @@ func checkIfLowPort(addrs listenAddresses) {
 	}
 }
 
-//init_global sets up and initializes the global variables
-func init_global(template_flag *string, static_flag *string, clean_db *bool) {
-	template_dir := *template_flag
-	if template_dir == "" {
-		template_dir = os.Getenv("TEMPLATE_DIR")
+//initGlobals sets up and initializes the global variables
+func initGlobals(templateFlag *string, staticFlag *string, cleanDb *bool) {
+	templateDir := *templateFlag
+	if templateDir == "" {
+		templateDir = os.Getenv("TEMPLATE_DIR")
 	}
-	config.templates = template.Must(template.ParseGlob(filepath.Join(template_dir, "*.html")))
+	config.templates = template.Must(template.ParseGlob(filepath.Join(templateDir, "*.html")))
 
-	config.static_dir = *static_flag
-	if config.static_dir == "" {
-		config.static_dir = os.Getenv("STATIC_DIR")
+	config.staticDir = *staticFlag
+	if config.staticDir == "" {
+		config.staticDir = os.Getenv("STATIC_DIR")
 	}
 
 	var err error
-	database_dir := filepath.Join(os.Getenv("HOME"), ".pastebin-go")
-	config.db_filename = filepath.Join(database_dir, ".pastedata.kvdb")
-	if _, err = os.Stat(database_dir); err != nil {
+	databaseDir := filepath.Join(os.Getenv("HOME"), ".pastebin-go")
+	config.dbFilename = filepath.Join(databaseDir, ".pastedata.kvdb")
+	if _, err = os.Stat(databaseDir); err != nil {
 		if os.IsNotExist(err) {
 			//Create
-			os.Mkdir(database_dir, 0775)
+			os.Mkdir(databaseDir, 0775)
 		} else {
 			panic(err)
 		}
 	}
 
-	if _, err = os.Stat(config.db_filename); err == nil && *clean_db == true {
-		os.Remove(config.db_filename)
+	if _, err = os.Stat(config.dbFilename); err == nil && *cleanDb == true {
+		os.Remove(config.dbFilename)
 	}
 
-	config.database, err = kvdb.Open(config.db_filename, true)
+	config.database, err = kvdb.Open(config.dbFilename, true)
 	if err != nil {
 		panic(err)
 	}
@@ -232,13 +232,13 @@ func main() {
 	//Setup command line flags
 	var addrs listenAddresses
 	flag.Var(&addrs, "interface", "Interface to listen to. Interfaces are of the form <address>:<port>. Call multiple times for multiple addresses")
-	tmpl_flag := flag.String("template-dir", "", "Directory for template files")
-	static_flag := flag.String("static-dir", "", "Directory for static files")
-	clean_flag := flag.Bool("clean-database", false, "Delete existing database and create from scratch")
+	tmplFlag := flag.String("template-dir", "", "Directory for template files")
+	staticFlag := flag.String("static-dir", "", "Directory for static files")
+	cleanFlag := flag.Bool("clean-database", false, "Delete existing database and create from scratch")
 	flag.Parse()
 
-	init_global(tmpl_flag, static_flag, clean_flag)
-	defer config.database.Export(config.db_filename)
+	initGlobals(tmplFlag, staticFlag, cleanFlag)
+	defer config.database.Export(config.dbFilename)
 
 	if len(addrs) == 0 {
 		addrs = append(addrs, "localhost:8080")
@@ -248,7 +248,7 @@ func main() {
 	var wg sync.WaitGroup
 	for _, ifc := range addrs {
 		wg.Add(1)
-		go startServer(&wg, config.static_dir, ifc)
+		go startServer(&wg, config.staticDir, ifc)
 	}
 	wg.Wait()
 }
