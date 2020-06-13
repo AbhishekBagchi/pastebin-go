@@ -112,7 +112,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		data = encodeTime(data, ttl)
 		hash := sha256.Sum256(data)
 		key := hex.EncodeToString(hash[0:8])
-		log.Printf("%s: %s, %v, %v", key, data)
+		log.Printf("%s: %s", key, data)
 
 		dbErr := config.database.Insert(key, data, false)
 		if dbErr != nil {
