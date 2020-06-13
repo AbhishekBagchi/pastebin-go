@@ -43,7 +43,7 @@ var config struct {
 
 var hash = sha256.New()
 
-type Paste struct {
+type paste struct {
 	Link     template.URL
 	Contents string
 }
@@ -54,11 +54,21 @@ type Paste struct {
 func encodeTime(data []byte, ttl time.Duration) []byte {
 	//Pre-prend a canary for some robustness
 	canary := []byte{0xde, 0xad}
-	currTime := time.Now()
-	expiryTime := (uint64)(currTime.Add(ttl).Unix())
-	timeBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(timeBytes, expiryTime)
-	data = append(timeBytes, data...)
+	if ttl == 0 {
+		timeBytes := make([]byte, 8)
+		for i := range timeBytes {
+			timeBytes[i] = 0xFF
+		}
+		prepend := append(canary, timeBytes...)
+		data = append(prepend, data...)
+	} else {
+		currTime := time.Now()
+		expiryTime := (uint64)(currTime.Add(ttl).Unix())
+		timeBytes := make([]byte, 8)
+		binary.LittleEndian.PutUint64(timeBytes, expiryTime)
+		prepend := append(canary, timeBytes...)
+		data = append(prepend, data...)
+	}
 	return append(canary, data...)
 }
 
@@ -81,10 +91,28 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if r.Method == http.MethodPost {
 		data := []byte(r.FormValue("contents"))
-		data = encodeTime(data, 1*time.Minute)
+		ttl_unit := r.FormValue("ttl_unit")
+		ttl_form := r.FormValue("ttl")
+		var ttl time.Duration = 0
+		if ttl_form != "" {
+			ttl_value, err := strconv.Atoi(ttl_form)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			switch ttl_unit {
+			case "minute":
+				ttl = time.Duration(ttl_value) * time.Minute
+			case "hour":
+				ttl = time.Duration(ttl_value) * time.Hour
+			case "day":
+				ttl = time.Duration(ttl_value) * 24 * time.Hour
+			}
+		}
+		data = encodeTime(data, ttl)
 		hash := sha256.Sum256(data)
 		key := hex.EncodeToString(hash[0:8])
-		log.Printf("%s: %s", key, data)
+		log.Printf("%s: %s, %v, %v", key, data)
 
 		db_err := config.database.Insert(key, data, false)
 		if db_err != nil {
@@ -119,7 +147,7 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server error", 501)
 		return
 	}
-	p := &Paste{Link: link, Contents: string(dat)}
+	p := &paste{Link: link, Contents: string(dat)}
 	err = config.templates.ExecuteTemplate(w, "viewPage", p)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

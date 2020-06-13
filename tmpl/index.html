@@ -8,6 +8,12 @@
         <div class="page">
             <form method="post" action="/">
                 <textarea name="contents" rows="5" cols="50"> </textarea>
+                Paste TTL: <input name="ttl" type="number" min=0 step=1 oninput="validity.valid||(value='');">
+                <select name="ttl_unit">
+                    <option value="minute">Minutes</option>
+                    <option value="hour">Hours</option>
+                    <option value="day">Days</option>
+                </select>
                 <button type="submit">Paste!</button>
             </form>
         </div>
