@@ -69,7 +69,7 @@ func encodeTime(data []byte, ttl time.Duration) []byte {
 		prepend := append(canary, timeBytes...)
 		data = append(prepend, data...)
 	}
-	return append(canary, data...)
+	return data
 }
 
 //decodeTime gets the expiry time for a data chunk from the first 8 bytes
@@ -112,7 +112,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		data = encodeTime(data, ttl)
 		hash := sha256.Sum256(data)
 		key := hex.EncodeToString(hash[0:8])
-		log.Printf("%s: %s", key, data)
+		log.Printf("%s: %v", key, data)
 
 		dbErr := config.database.Insert(key, data, false)
 		if dbErr != nil {
@@ -147,6 +147,7 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server error", 501)
 		return
 	}
+	log.Printf("%v", dat)
 	p := &paste{Link: link, Contents: string(dat)}
 	err = config.templates.ExecuteTemplate(w, "viewPage", p)
 	if err != nil {
@@ -193,6 +194,21 @@ func checkIfLowPort(addrs listenAddresses) {
 	}
 }
 
+//cleanupDB goes through all entries in the database and deletes any that should have expired
+func cleanupDB(db *kvdb.Database) {
+	currTime := (uint64)(time.Now().Unix())
+	for key, value := range db.ToRawMap() {
+		_, expiry, err := decodeTime(value)
+		if err != nil {
+			panic(err)
+		}
+		if expiry < currTime {
+			db.Delete(key)
+			log.Printf("Removing key %s. Current Time %v. Expiry time %v", key, currTime, expiry)
+		}
+	}
+}
+
 //initGlobals sets up and initializes the global variables
 func initGlobals(templateFlag *string, staticFlag *string, cleanDb *bool) {
 	templateDir := *templateFlag
@@ -223,6 +239,7 @@ func initGlobals(templateFlag *string, staticFlag *string, cleanDb *bool) {
 	}
 
 	config.database, err = kvdb.Open(config.dbFilename, true)
+	cleanupDB(config.database)
 	if err != nil {
 		panic(err)
 	}
