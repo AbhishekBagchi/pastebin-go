@@ -139,15 +139,14 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 	urlPath := r.URL.Path
 	idx := strings.Index(urlPath, "/view/")
 	if idx == -1 {
-		http.Error(w, "Invalid URL format", http.StatusNotFound)
+		errorHandler(w, r, http.StatusNotFound, "Not found")
 		return
 	}
 	link := template.URL("http://" + r.Host + urlPath)
 	key := urlPath[6:]
 	dat, dbErr := config.database.Get(key)
 	if dbErr != nil {
-		log.Printf(dbErr.String())
-		http.Error(w, dbErr.String(), http.StatusNotFound)
+		errorHandler(w, r, http.StatusNotFound, dbErr.String())
 		return
 	}
 	dat, _, err := decodeTime(dat)
@@ -160,20 +159,19 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 	p := &paste{Link: link, Contents: string(dat)}
 	err = config.templates.ExecuteTemplate(w, "viewPage", p)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		errorHandler(w, r, http.StatusNotFound, err.Error())
 		return
 	}
 }
 
-/*
-func errorHandler(w http.ResponseWriter, r *http.Request) {
+func errorHandler(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	w.WriteHeader(status)
 	err := config.templates.ExecuteTemplate(w, "errorPage", nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 }
-*/
 
 //startServer sets up the http server and routing to different end point handlers
 func startServer(wg *sync.WaitGroup, staticDir string, ifc string) {
