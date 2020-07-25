@@ -1,5 +1,7 @@
 package main
 
+//FIXME Change all the random server errors to bettor messages
+
 import (
 	"crypto/sha256"
 	"encoding/binary"
@@ -213,6 +215,8 @@ func cleanupDB(db *kvdb.Database) {
 		if expiryTime < currTime {
 			db.Delete(key)
 			log.Printf("Removing key %s. Current Time %v. Expiry time %v", key, currTime, expiryTime)
+			//The database is exported after every deletion
+			config.database.Export(config.dbFilename)
 		} else {
 			//Push entries into the timed queue
 			timedEntryQueue.Push(key, int(expiryTime))
@@ -233,6 +237,8 @@ func cleanupTimedQueue(ticker *time.Ticker, db *kvdb.Database) {
 			if uint64(expiryTime) < currTime {
 				db.Delete(key)
 				log.Printf("Removing key %s. Current Time %v. Expiry time %v", key, currTime, expiryTime)
+				//The database is exported after every deletion
+				config.database.Export(config.dbFilename)
 			}
 		}
 	}
