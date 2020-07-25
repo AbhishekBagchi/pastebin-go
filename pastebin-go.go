@@ -76,7 +76,7 @@ func encodeTime(data []byte, ttl time.Duration) (uint64, []byte) {
 	}
 }
 
-//decodeTime gets the expiry time for a data chunk from the first 8 bytes
+//decodeTime gets the expiryTime time for a data chunk from the first 8 bytes
 func decodeTime(data []byte) ([]byte, uint64, error) {
 	canary := []byte{0xde, 0xad}
 	if data[0] != canary[0] || data[1] != canary[1] {
@@ -206,13 +206,16 @@ func checkIfLowPort(addrs listenAddresses) {
 func cleanupDB(db *kvdb.Database) {
 	currTime := (uint64)(time.Now().Unix())
 	for key, value := range db.ToRawMap() {
-		_, expiry, err := decodeTime(value)
+		_, expiryTime, err := decodeTime(value)
 		if err != nil {
 			panic(err)
 		}
-		if expiry < currTime {
+		if expiryTime < currTime {
 			db.Delete(key)
-			log.Printf("Removing key %s. Current Time %v. Expiry time %v", key, currTime, expiry)
+			log.Printf("Removing key %s. Current Time %v. Expiry time %v", key, currTime, expiryTime)
+		} else {
+			//Push entries into the timed queue
+			timedEntryQueue.Push(key, int(expiryTime))
 		}
 	}
 }
@@ -227,7 +230,6 @@ func cleanupTimedQueue(ticker *time.Ticker, db *kvdb.Database) {
 				panic(err)
 			}
 			key := value.(string)
-			log.Printf("Checking key %s. Current Time %v. Expiry time %v", key, currTime, expiryTime)
 			if uint64(expiryTime) < currTime {
 				db.Delete(key)
 				log.Printf("Removing key %s. Current Time %v. Expiry time %v", key, currTime, expiryTime)
