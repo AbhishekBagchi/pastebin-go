@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"github.com/AbhishekBagchi/kvdb"
+	"github.com/AbhishekBagchi/priorityqueue"
 	"html/template"
 	"log"
 	"net/http"
@@ -17,6 +18,8 @@ import (
 	"sync"
 	"time"
 )
+
+var timedEntryQueue *priorityqueue.PriorityQueue
 
 //Interface addresses. Passed in multiple times for multiple values
 type listenAddresses []string
@@ -50,8 +53,8 @@ type paste struct {
 
 //encodeTime takes in the raw data being pasted and prepares it for storage in the database.
 //The data is stored as <exprity_time uint64> + <paste_data>
-//expiry_time is current_time + TTL. TTL is in minutes
-func encodeTime(data []byte, ttl time.Duration) []byte {
+//expiryTime is currentTime + TTL. TTL is in minutes
+func encodeTime(data []byte, ttl time.Duration) (uint64, []byte) {
 	//Pre-prend a canary for some robustness
 	canary := []byte{0xde, 0xad}
 	if ttl == 0 {
@@ -61,6 +64,7 @@ func encodeTime(data []byte, ttl time.Duration) []byte {
 		}
 		prepend := append(canary, timeBytes...)
 		data = append(prepend, data...)
+		return 0xFFFFFFFFFFFFFFFF, data
 	} else {
 		currTime := time.Now()
 		expiryTime := (uint64)(currTime.Add(ttl).Unix())
@@ -68,8 +72,8 @@ func encodeTime(data []byte, ttl time.Duration) []byte {
 		binary.LittleEndian.PutUint64(timeBytes, expiryTime)
 		prepend := append(canary, timeBytes...)
 		data = append(prepend, data...)
+		return expiryTime, data
 	}
-	return data
 }
 
 //decodeTime gets the expiry time for a data chunk from the first 8 bytes
@@ -109,9 +113,12 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 				ttl = time.Duration(ttlValue) * 24 * time.Hour
 			}
 		}
-		data = encodeTime(data, ttl)
+		expiryTime, data := encodeTime(data, ttl)
 		hash := sha256.Sum256(data)
 		key := hex.EncodeToString(hash[0:8])
+		if expiryTime != 0xFFFFFFFFFFFFFFFF {
+			timedEntryQueue.Push(key, int(expiryTime))
+		}
 		log.Printf("%s: %v", key, data)
 
 		dbErr := config.database.Insert(key, data, false)
@@ -195,6 +202,7 @@ func checkIfLowPort(addrs listenAddresses) {
 }
 
 //cleanupDB goes through all entries in the database and deletes any that should have expired
+//FIXME this needs to also add entries back into the timedEntryQueue
 func cleanupDB(db *kvdb.Database) {
 	currTime := (uint64)(time.Now().Unix())
 	for key, value := range db.ToRawMap() {
@@ -209,8 +217,30 @@ func cleanupDB(db *kvdb.Database) {
 	}
 }
 
+func cleanupTimedQueue(ticker *time.Ticker, db *kvdb.Database) {
+	for ; true; <-ticker.C {
+		log.Printf("Ticker ran. Queue has %v elements", timedEntryQueue.Len())
+		currTime := uint64(time.Now().Unix())
+		if timedEntryQueue.Len() > 0 {
+			value, expiryTime, err := timedEntryQueue.Top()
+			if err != nil {
+				panic(err)
+			}
+			key := value.(string)
+			log.Printf("Checking key %s. Current Time %v. Expiry time %v", key, currTime, expiryTime)
+			if uint64(expiryTime) < currTime {
+				db.Delete(key)
+				log.Printf("Removing key %s. Current Time %v. Expiry time %v", key, currTime, expiryTime)
+			}
+		}
+	}
+}
+
 //initGlobals sets up and initializes the global variables
 func initGlobals(templateFlag *string, staticFlag *string, cleanDb *bool) {
+
+	timedEntryQueue = priorityqueue.New(priorityqueue.MinQueue)
+
 	templateDir := *templateFlag
 	if templateDir == "" {
 		templateDir = os.Getenv("TEMPLATE_DIR")
@@ -256,6 +286,11 @@ func main() {
 
 	initGlobals(tmplFlag, staticFlag, cleanFlag)
 	defer config.database.Export(config.dbFilename)
+
+	cleanupQueueTicker := time.NewTicker(30 * time.Second)
+	defer cleanupQueueTicker.Stop()
+
+	go cleanupTimedQueue(cleanupQueueTicker, config.database)
 
 	if len(addrs) == 0 {
 		addrs = append(addrs, "localhost:8080")
