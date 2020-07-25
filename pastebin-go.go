@@ -126,7 +126,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		dbErr := config.database.Insert(key, data, false)
 		if dbErr != nil {
 			log.Printf(dbErr.String())
-			http.Error(w, "Server error", 501)
+			http.Error(w, "Server error", http.StatusInternalServerError)
 			return
 		}
 		defer config.database.Export(config.dbFilename)
@@ -139,7 +139,7 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 	urlPath := r.URL.Path
 	idx := strings.Index(urlPath, "/view/")
 	if idx == -1 {
-		http.Error(w, "Invalid URL format", http.StatusInternalServerError)
+		http.Error(w, "Invalid URL format", http.StatusNotFound)
 		return
 	}
 	link := template.URL("http://" + r.Host + urlPath)
@@ -147,24 +147,25 @@ func viewHandler(w http.ResponseWriter, r *http.Request) {
 	dat, dbErr := config.database.Get(key)
 	if dbErr != nil {
 		log.Printf(dbErr.String())
-		http.Error(w, "Server error", 501)
+		http.Error(w, dbErr.String(), http.StatusNotFound)
 		return
 	}
 	dat, _, err := decodeTime(dat)
 	if err != nil {
-		log.Printf(dbErr.String())
-		http.Error(w, "Server error", 501)
+		log.Printf(err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	log.Printf("%v", dat)
 	p := &paste{Link: link, Contents: string(dat)}
 	err = config.templates.ExecuteTemplate(w, "viewPage", p)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 }
 
+/*
 func errorHandler(w http.ResponseWriter, r *http.Request) {
 	err := config.templates.ExecuteTemplate(w, "errorPage", nil)
 	if err != nil {
@@ -172,6 +173,7 @@ func errorHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+*/
 
 //startServer sets up the http server and routing to different end point handlers
 func startServer(wg *sync.WaitGroup, staticDir string, ifc string) {
@@ -181,7 +183,6 @@ func startServer(wg *sync.WaitGroup, staticDir string, ifc string) {
 	//Serve static CSS etc
 	serveMux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 	serveMux.HandleFunc("/", indexHandler)
-	serveMux.HandleFunc("/error/", errorHandler)
 	serveMux.HandleFunc("/view/", viewHandler)
 	log.Fatal(http.ListenAndServe(ifc, serveMux))
 }
