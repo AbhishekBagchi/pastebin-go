@@ -117,7 +117,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		expiryTime, data := encodeTime(data, ttl)
 		hash := sha256.Sum256(data)
-		key := hex.EncodeToString(hash[0:8])
+		key := hex.EncodeToString(hash[0:4])
 		if expiryTime != 0xFFFFFFFFFFFFFFFF {
 			timedEntryQueue.Push(key, int(expiryTime))
 		}
