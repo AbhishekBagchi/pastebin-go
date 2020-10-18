@@ -205,6 +205,7 @@ func checkIfLowPort(addrs listenAddresses) {
 //cleanupDB goes through all entries in the database and deletes any that should have expired
 //FIXME this needs to also add entries back into the timedEntryQueue
 func cleanupDB(db *kvdb.Database) {
+	needsExport := false
 	currTime := (uint64)(time.Now().Unix())
 	for key, value := range db.ToRawMap() {
 		_, expiryTime, err := decodeTime(value)
@@ -212,34 +213,43 @@ func cleanupDB(db *kvdb.Database) {
 			panic(err)
 		}
 		if expiryTime < currTime {
+			needsExport = true
 			db.Delete(key)
 			log.Printf("Removing key %s. Current Time %v. Expiry time %v", key, currTime, expiryTime)
-			//The database is exported after every deletion
-			config.database.Export(config.dbFilename)
 		} else {
 			//Push entries into the timed queue
 			timedEntryQueue.Push(key, int(expiryTime))
 		}
 	}
+	if needsExport == true {
+		//The database is exported after every deletion
+		config.database.Export(config.dbFilename)
+	}
 }
 
 func cleanupTimedQueue(ticker *time.Ticker, db *kvdb.Database) {
 	for ; true; <-ticker.C {
+		needsExport := false
 		log.Printf("Ticker ran. Queue has %v elements", timedEntryQueue.Len())
 		currTime := uint64(time.Now().Unix())
-		if timedEntryQueue.Len() > 0 {
+		for timedEntryQueue.Len() > 0 {
 			value, expiryTime, err := timedEntryQueue.Top()
 			if err != nil {
 				panic(err)
 			}
 			key := value.(string)
 			if uint64(expiryTime) < currTime {
+				needsExport = true
 				db.Delete(key)
 				timedEntryQueue.Pop()
 				log.Printf("Removing key %s. Current Time %v. Expiry time %v", key, currTime, expiryTime)
-				//The database is exported after every deletion
-				config.database.Export(config.dbFilename)
+			} else {
+				break
 			}
+		}
+		if needsExport == true {
+			//The database is exported after every deletion
+			config.database.Export(config.dbFilename)
 		}
 	}
 }
