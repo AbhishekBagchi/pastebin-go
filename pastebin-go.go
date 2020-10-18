@@ -235,6 +235,7 @@ func cleanupTimedQueue(ticker *time.Ticker, db *kvdb.Database) {
 			key := value.(string)
 			if uint64(expiryTime) < currTime {
 				db.Delete(key)
+				timedEntryQueue.Pop()
 				log.Printf("Removing key %s. Current Time %v. Expiry time %v", key, currTime, expiryTime)
 				//The database is exported after every deletion
 				config.database.Export(config.dbFilename)
