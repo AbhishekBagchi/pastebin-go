@@ -56,6 +56,7 @@ type paste struct {
 //encodeTime takes in the raw data being pasted and prepares it for storage in the database.
 //The data is stored as <exprity_time uint64> + <paste_data>
 //expiryTime is currentTime + TTL. TTL is in minutes
+//0xFFFFFFFFFFFFFFFF is used as a sentinel value for when there is no expiryTime
 func encodeTime(data []byte, ttl time.Duration) (uint64, []byte) {
 	//Pre-prend a canary for some robustness
 	canary := []byte{0xde, 0xad}
@@ -88,7 +89,9 @@ func decodeTime(data []byte) ([]byte, uint64, error) {
 	return data[10:], binary.LittleEndian.Uint64(timeBytes), nil
 }
 
+//indexHandler handles HTTP GET and POST to '/'
 func indexHandler(w http.ResponseWriter, r *http.Request) {
+	//If GET, just show the homepage
 	if r.Method == http.MethodGet {
 		err := config.templates.ExecuteTemplate(w, "indexPage", nil)
 		if err != nil {
@@ -96,6 +99,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if r.Method == http.MethodPost {
+		//If POST, handle form data
 		data := []byte(r.FormValue("contents"))
 		ttlUnit := r.FormValue("ttl_unit")
 		ttlFormValue := r.FormValue("ttl")
@@ -174,12 +178,12 @@ func errorHandler(w http.ResponseWriter, r *http.Request, status int, msg string
 }
 
 //startServer sets up the http server and routing to different end point handlers
-func startServer(wg *sync.WaitGroup, staticDir string, ifc string) {
+func startServer(wg *sync.WaitGroup, ifc string) {
 	defer wg.Done()
 	log.Printf("Listening on %s", ifc)
 	serveMux := http.NewServeMux()
 	//Serve static CSS etc
-	serveMux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
+	serveMux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(config.staticDir))))
 	serveMux.HandleFunc("/", indexHandler)
 	serveMux.HandleFunc("/view/", viewHandler)
 	log.Fatal(http.ListenAndServe(ifc, serveMux))
@@ -203,7 +207,6 @@ func checkIfLowPort(addrs listenAddresses) {
 }
 
 //cleanupDB goes through all entries in the database and deletes any that should have expired
-//FIXME this needs to also add entries back into the timedEntryQueue
 func cleanupDB(db *kvdb.Database) {
 	needsExport := false
 	currTime := (uint64)(time.Now().Unix())
@@ -227,6 +230,7 @@ func cleanupDB(db *kvdb.Database) {
 	}
 }
 
+//cleanupTimedQueue goes through the timed queue every 30 seconds and deletes entries that have expired
 func cleanupTimedQueue(ticker *time.Ticker, db *kvdb.Database) {
 	for ; true; <-ticker.C {
 		needsExport := false
@@ -318,7 +322,7 @@ func main() {
 	var wg sync.WaitGroup
 	for _, ifc := range addrs {
 		wg.Add(1)
-		go startServer(&wg, config.staticDir, ifc)
+		go startServer(&wg, ifc)
 	}
 	wg.Wait()
 }
