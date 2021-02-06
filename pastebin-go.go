@@ -186,7 +186,12 @@ func startServer(wg *sync.WaitGroup, ifc string) {
 	serveMux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(config.staticDir))))
 	serveMux.HandleFunc("/", indexHandler)
 	serveMux.HandleFunc("/view/", viewHandler)
-	log.Fatal(http.ListenAndServe(ifc, serveMux))
+	server := http.Server{
+		Addr:    ifc,
+		Handler: serveMux,
+	}
+
+	log.Fatal(server.ListenAndServe())
 }
 
 //checkIfLowPort checks if user needs to be root to bind to a certain port and panics if a non root user tries to do so
