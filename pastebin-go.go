@@ -4,10 +4,12 @@ package main
 
 import (
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"flag"
+	"fmt"
 	"github.com/AbhishekBagchi/kvdb"
 	"github.com/AbhishekBagchi/priorityqueue"
 	"html/template"
@@ -40,10 +42,12 @@ func (i *listenAddresses) Set(value string) error {
 }
 
 var config struct {
-	templates  *template.Template
-	staticDir  string
-	dbFilename string
-	database   *kvdb.Database
+	templates    *template.Template
+	staticDir    string
+	dbFilename   string
+	database     *kvdb.Database
+	httpsEnabled bool
+	tlsCert      tls.Certificate
 }
 
 var hash = sha256.New()
@@ -54,9 +58,12 @@ type paste struct {
 }
 
 var argSet struct {
-	tmplFlag   *string
-	staticFlag *string
-	cleanFlag  *bool
+	tmplFlag         *string
+	staticFlag       *string
+	cleanFlag        *bool
+	httpsEnabledFlag *bool
+	certFileFlag     *string
+	keyFileFlag      *string
 }
 
 //encodeTime takes in the raw data being pasted and prepares it for storage in the database.
@@ -196,8 +203,15 @@ func startServer(wg *sync.WaitGroup, ifc string) {
 		Addr:    ifc,
 		Handler: serveMux,
 	}
+	if config.httpsEnabled == true {
+		server.TLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{config.tlsCert},
+		}
+		log.Fatal(server.ListenAndServeTLS("", ""))
+	} else {
+		log.Fatal(server.ListenAndServe())
+	}
 
-	log.Fatal(server.ListenAndServe())
 }
 
 //checkIfLowPort checks if user needs to be root to bind to a certain port and panics if a non root user tries to do so
@@ -306,6 +320,18 @@ func initGlobals() {
 	if err != nil {
 		panic(err)
 	}
+
+	if *argSet.httpsEnabledFlag == true {
+		config.httpsEnabled = true
+		if *argSet.certFileFlag == "" || *argSet.keyFileFlag == "" {
+			fmt.Printf("-https-enabled needs -cert-file-path and -key-file-path to be specified\n")
+			os.Exit(1)
+		}
+		config.tlsCert, err = tls.LoadX509KeyPair(*argSet.certFileFlag, *argSet.keyFileFlag)
+		if err != nil {
+			panic(err)
+		}
+	}
 }
 
 func main() {
@@ -315,6 +341,9 @@ func main() {
 	argSet.tmplFlag = flag.String("template-dir", "", "Directory for template files")
 	argSet.staticFlag = flag.String("static-dir", "", "Directory for static files")
 	argSet.cleanFlag = flag.Bool("clean-database", false, "Delete existing database and create from scratch")
+	argSet.httpsEnabledFlag = flag.Bool("enable-https", false, "Enable HTTPS on the server")
+	argSet.certFileFlag = flag.String("cert-file-path", "", "Path to the cert file")
+	argSet.keyFileFlag = flag.String("key-file-path", "", "Path to the key file")
 	flag.Parse()
 
 	initGlobals()
