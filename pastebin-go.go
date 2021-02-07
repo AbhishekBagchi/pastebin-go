@@ -53,6 +53,12 @@ type paste struct {
 	Contents string
 }
 
+var argSet struct {
+	tmplFlag   *string
+	staticFlag *string
+	cleanFlag  *bool
+}
+
 //encodeTime takes in the raw data being pasted and prepares it for storage in the database.
 //The data is stored as <exprity_time uint64> + <paste_data>
 //expiryTime is currentTime + TTL. TTL is in minutes
@@ -264,17 +270,17 @@ func cleanupTimedQueue(ticker *time.Ticker, db *kvdb.Database) {
 }
 
 //initGlobals sets up and initializes the global variables
-func initGlobals(templateFlag *string, staticFlag *string, cleanDb *bool) {
+func initGlobals() {
 
 	timedEntryQueue = priorityqueue.New(priorityqueue.MinQueue)
 
-	templateDir := *templateFlag
+	templateDir := *argSet.tmplFlag
 	if templateDir == "" {
 		templateDir = os.Getenv("TEMPLATE_DIR")
 	}
 	config.templates = template.Must(template.ParseGlob(filepath.Join(templateDir, "*.html")))
 
-	config.staticDir = *staticFlag
+	config.staticDir = *argSet.staticFlag
 	if config.staticDir == "" {
 		config.staticDir = os.Getenv("STATIC_DIR")
 	}
@@ -291,7 +297,7 @@ func initGlobals(templateFlag *string, staticFlag *string, cleanDb *bool) {
 		}
 	}
 
-	if _, err = os.Stat(config.dbFilename); err == nil && *cleanDb == true {
+	if _, err = os.Stat(config.dbFilename); err == nil && *argSet.cleanFlag == true {
 		os.Remove(config.dbFilename)
 	}
 
@@ -306,12 +312,12 @@ func main() {
 	//Setup command line flags
 	var addrs listenAddresses
 	flag.Var(&addrs, "interface", "Interface to listen to. Interfaces are of the form <address>:<port>. Call multiple times for multiple addresses")
-	tmplFlag := flag.String("template-dir", "", "Directory for template files")
-	staticFlag := flag.String("static-dir", "", "Directory for static files")
-	cleanFlag := flag.Bool("clean-database", false, "Delete existing database and create from scratch")
+	argSet.tmplFlag = flag.String("template-dir", "", "Directory for template files")
+	argSet.staticFlag = flag.String("static-dir", "", "Directory for static files")
+	argSet.cleanFlag = flag.Bool("clean-database", false, "Delete existing database and create from scratch")
 	flag.Parse()
 
-	initGlobals(tmplFlag, staticFlag, cleanFlag)
+	initGlobals()
 	defer config.database.Export(config.dbFilename)
 
 	cleanupQueueTicker := time.NewTicker(30 * time.Second)
