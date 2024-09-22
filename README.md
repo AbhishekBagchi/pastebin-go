@@ -1,5 +1,3 @@
-[![Build Status](https://travis-ci.com/AbhishekBagchi/pastebin-go.svg?token=GGuKjubCYgHZZRYomaqG&branch=master)](https://travis-ci.com/AbhishekBagchi/pastebin-go)
-
 Pastebin server in Go.
 
 A representative set of steps to get this up and running would be as follows
